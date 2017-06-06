@@ -10,138 +10,107 @@ import os
 
 #--------------------------------paths-----------------------------------------
 images_path    = "/home/sreis/candels_images/"
-masks_path     = "/home/sreis/candels_images/masks/"
 
 #---------------------------------constants------------------------------------
 zp_imaging = 25.95
-pix_scale  = 0.06
-
-#-----------------------------read catalogs------------------------------------
-sample       = catalogs_path+"samplecat_with_morphologies.txt"
-gal_id,morphology,field,ra,dec,redshift,lmass= np.loadtxt(sample,dtype=str,unpack=True)
+pix_scale  = 0.06 #[arcsec pix^-1] for H-band; for I-band is 0.03
+size_of_fit = 200 #[pix]: for H-band is 200x200 and for I-band is 400x400
+mag_min = 15 #[mag]
+mag_max = 19 #[mag]
+mag_step = 5
+re_min = 0.3/pix_scale #[arcsec]/[arcsec pix^-1] = [pix] => must be in [pix] for GALFIT
+re_max = 3.3/pix_scale #[pix]
+re_step = 10
+nn_min = 2.3
+nn_max = 7.3
+nn_step = 6
+ar_min = 0.4
+ar_max = 1.
+ar_step = 7
+fields_names = ['goodsn','cosmos','uds','egs']
+candels_fields = {'goodsn':images_path+"goodsn_all_wfc3_ir_f160w_060mas_v1.0",'cosmos':images_path+"hlsp_candels_hst_wfc3_cos-tot_f160w_v1.0",'uds':images_path+"hlsp_candels_hst_wfc3_uds-tot_f160w_v1.0","egs":images_path+"egs_all_wfc3_ir_f160w_060mas_v1.0"}
 #------------------------------------------------------------------------------
 
-for ii in range(len(gal_id)):
-    gal = int(gal_id[ii])
-    img_cut = fits.open(images_path+str(gal)+"_cut.fits")
-    hdr     = img_cut[0].header #read the header of the cutted image
-    exptime = hdr['EXPTIME']
-    gal_zp  = zp_imaging - 2.5 * np.log10 (exptime)
+mag_range = np.linspace(mag_min,mag_max,mag_step) #linspace return evenly spaced numbers over a specified interval
+re_range = np.linspace(re_min,re_max,re_step)
+nn_range = np.linspace(nn_min,nn_max,nn_step)
+ar_range = np.linspace(ar_min,ar_max,ar_step)
 
-    #---------take the values from the header of the model from galfit---------
-##vou pegar numa posição aleatória onde o valor do segmentation map seja igual a zero e criar aí uma galáxia
+count = 0 #to count the iterations
+for mag_ele in mag_range:
+    for re_ele in re_range:
+        for nn_ele in nn_range:
+            for ar_ele in ar_range:
+                count = count+1
+                field = np.random.choice(fields_names) #choose a random field
+                seg_img = fits.open(field+"_segmentation.fits")
+                seg_data = seg_img[0].data #read the values from segmentation file
+                seg_hdr = seg_img[0].header
+                image_of_field = candels_fields[field]+"_drz.fits"
+                rms_of_field = candels_fields[field]+"_rms.fits"
+                #print count, field, image_of_choosen_field
 
-    img = fits.open(doublefit_path+str(gal)+"_doublefit_fixedn1.fits")
-    model = img[2]
+                #-----------------take values from the header-------------------
+                exptime = seg_hdr['EXPTIME']
+                x_naxis = seg_hdr['NAXIS1']
+                y_naxis = seg_hdr['NAXIS2']
 
-    x_pix               = model.header['NAXIS1']
-    y_pix               = model.header['NAXIS2']
+                #-----------------------------read catalogs---------------------
+                #it is possible to read SExtractor tables with the astropy.io.ascii module:
+                #from astropy.io import ascii
+                #data=ascii.read("/home/sreis/simulations/goodsn.cat")
+                field_cat = field+".cat"
+                number,xx,yy,mag_aper,flux_aper,fluxerr_aper,flux_auto,fluxerr_auto,ra,dec,fwhm,sm_sex,xmin,xmax,ymin,ymax,ellip,theta = np.loadtxt(field_cat, unpack = True)
 
-    gal_x_disk_model    = model.header['2_XC']
-    gal_x_disk          = float(gal_x_disk_model.split()[0])
-    gal_y_disk_model    = model.header['2_YC']
-    gal_y_disk          = float(gal_y_disk_model.split()[0])
-    gal_mag_disk_model  = model.header['2_MAG']
-    gal_mag_disk        = float(gal_mag_disk_model.split()[0])
-    gal_re_disk_model   = model.header['2_RE']
-    gal_re_disk         = float(gal_re_disk_model.split()[0])
-    gal_n_disk_model    = model.header['2_N']
-    gal_n_disk          = float(1.0000)
-    gal_ar_disk_model   = model.header['2_AR']
-    gal_ar_disk         = float(gal_ar_disk_model.split()[0])
-    gal_pa_disk_model   = model.header['2_PA']
-    gal_pa_disk         = float(gal_pa_disk_model.split()[0])
+                #---------------parameters to create artificial galaxy----------
+                gal_zp  = zp_imaging - 2.5 * np.log10 (exptime)
+                #---galaxy position---
+                # x_pix = np.random.randint(200,x_naxis-199) #random.randint return random INTEGERS from low (inclusive) to high (exclusive); I use 200 for low value to avoid edges
+                # y_pix = np.random.randint(200,y_naxis-199)
+                x_pix = np.random.uniform(200.,x_naxis-199.)
+                y_pix = np.random.uniform(200.,y_naxis-199.)
+                xmin = x_pix - size_of_fit/2.
+                xmax = x_pix + size_of_fit/2.
+                ymin = y_pix - size_of_fit/2.
+                ymax = y_pix + size_of_fit/2.
+                pa_value = np.random.uniform(-90,91) #any value within the given interval is equally likely to be drawn by uniform
 
-    gal_x_bulge_model   = model.header['3_XC']
-    gal_x_bulge         = float(gal_x_bulge_model.split()[0])
-    gal_y_bulge_model   = model.header['3_YC']
-    gal_y_bulge         = float(gal_y_bulge_model.split()[0])
-    gal_mag_bulge_model = model.header['3_MAG']
-    gal_mag_bulge       = float(gal_mag_bulge_model.split()[0])
-    gal_re_bulge_model  = model.header['3_RE']
-    gal_re_bulge        = float(gal_re_bulge_model.split()[0])
-    gal_n_bulge_model   = model.header['3_N']
-    gal_n_bulge         = float(gal_n_bulge_model.split()[0])
-    gal_ar_bulge_model  = model.header['3_AR']
-    gal_ar_bulge        = float(gal_ar_bulge_model.split()[0])
-    gal_pa_bulge_model  = model.header['3_PA']
-    gal_pa_bulge        = float(gal_pa_bulge_model.split()[0])
-
-    #-----------------------------write galfit script--------------------------
-    file = open(str(gal)+"_model.script", "w")
-    file.write("# IMAGE PARAMETERS\n")
-    file.write(" A) "+images_path+str(gal)+"_cut.fits  # Input Data image (FITS file)\n")
-    file.write(" B) "+str(gal)+"_model.fits  # Name for the output image\n")
-    file.write(" C) "+images_path+str(gal)+"_rms.fits  # Noise image name (made from data if blank or 'none')\n")
-    file.write(" D) "+images_path+"gs_deep_f160w_v0.5_psf.fits  # Input PSF image and (optional) diffusion kernel\n")
-    file.write(" E) 1  # PSF oversampling factor relative to data\n")
-    file.write(" F) "+masks_path+str(gal)+"_mask.fits  # Pixel mask (ASCII file or FITS file with non-0 values)\n")
-    file.write(" G) "+doublefit_path+str(gal)+"_constraints.txt  # Parameter constraint file (ASCII)\n")
-    file.write(" H) 1         "+str(x_pix)+ "  1          "+str(y_pix)+ "  # Image region to fit (xmin xmax ymin ymax)\n")
-    file.write(" I) "+str(x_pix)+"      "+str(y_pix)+"  # Size of convolution box (x y)\n")
-    file.write(" J) "+str(gal_zp)+"  # Magnitude photometric zeropoint\n")
-    file.write(" K) "+str(pix_scale)+"     "+str(pix_scale)+"  # Plate scale (dx dy)\n")
-    file.write(" O) regular  # Display type (regular, curses, both)\n")
-    file.write(" P) 3  # Create ouput only? (1=yes; 0=optimize)\n")
-    file.write(" S) 0  # Modify/create objects interactively?\n")
-    file.write("\n")
-    file.write("\n")
-    file.write("# Component number: 1\n")
-    file.write(" 0) sky                    #  Component type\n")
-    file.write(" 1) 0.00      1       #  Sky background at center of fitting region [ADUs]\n")
-    file.write(" 2) 0.000     1       #  dsky/dx (sky gradient in x)     [ADUs/pix]\n")
-    file.write(" 3) 0.000     1       #  dsky/dy (sky gradient in y)     [ADUs/pix]\n")
-    file.write(" Z) 0                      #  Skip this model in output image?  (yes=1, no=0)\n")
-    file.write("\n")
-    #-----disk-----
-    file.write("# Component number: 2 - disk\n")
-    file.write(" 0) sersic                 #  Component type\n")
-    file.write(" 1) "+str(gal_x_disk)+" "+str(gal_y_disk)+" 1 1  #  Position x, y\n")
-    file.write(" 3) "+str(gal_mag_disk)+"     1          #  Integrated magnitude\n")
-    file.write(" 4) "+str(gal_re_disk)+"      1          #  R_e (effective radius)   [pix]\n")
-    file.write(" 5) "+str(gal_n_disk)+"           1          #  Sersic index n (de Vaucouleurs n=4)\n")
-    file.write(" 9) "+str(gal_ar_disk)+"      1          #  Axis ratio (b/a)  \n")
-    file.write("10) "+str(gal_pa_disk)+"    1          #  Position angle (PA) [deg: Up=0, Left=90]\n")
-    file.write(" Z) 0                      #  Skip this model in output image?  (yes=1, no=0)\n")
-    file.write("\n")
-    #-----bulge-----
-    file.write("# Component number: 3 - bulge\n")
-    file.write(" 0) sersic                 #  Component type\n")
-    file.write(" 1) "+str(gal_x_bulge)+" "+str(gal_y_bulge)+" 1 1  #  Position x, y\n")
-    file.write(" 3) "+str(gal_mag_bulge)+"     1          #  Integrated magnitude\n")
-    file.write(" 4) "+str(gal_re_bulge)+"      1          #  R_e (effective radius)   [pix]\n")
-    file.write(" 5) "+str(gal_n_bulge)+"           1          #  Sersic index n (de Vaucouleurs n=4)\n")
-    file.write(" 9) "+str(gal_ar_bulge)+"      1          #  Axis ratio (b/a)  \n")
-    file.write("10) "+str(gal_pa_bulge)+"    1          #  Position angle (PA) [deg: Up=0, Left=90]\n")
-    file.write(" Z) 0                      #  Skip this model in output image?  (yes=1, no=0)\n")
-    file.write("\n")
-    #-----bar-----
-    if gal in [13942, 37194]:
-        gal_x_bar_model   = model.header['4_XC']
-        gal_x_bar         = float(gal_x_bar_model.split()[0])
-        gal_y_bar_model   = model.header['4_YC']
-        gal_y_bar        = float(gal_y_bar_model.split()[0])
-        gal_mag_bar_model = model.header['4_MAG']
-        gal_mag_bar       = float(gal_mag_bar_model.split()[0])
-        gal_re_bar_model  = model.header['4_RE']
-        gal_re_bar        = float(gal_re_bar_model.split()[0])
-        gal_n_bar_model   = model.header['4_N']
-        gal_n_bar         = float(gal_n_bar_model.split()[0])
-        gal_ar_bar_model  = model.header['4_AR']
-        gal_ar_bar        = float(gal_ar_bar_model.split()[0])
-        gal_pa_bar_model  = model.header['4_PA']
-        gal_pa_bar        = float(gal_pa_bar_model.split()[0])
-
-        file.write("# Component number: 4 - bar\n")
-        file.write(" 0) sersic                 #  Component type\n")
-        file.write(" 1) "+str(gal_x_bar)+" "+str(gal_y_bar)+" 1 1  #  Position x, y\n")
-        file.write(" 3) "+str(gal_mag_bar)+"     1          #  Integrated magnitude\n")
-        file.write(" 4) "+str(gal_re_bar)+"      1          #  R_e (effective radius)   [pix]\n")
-        file.write(" 5) "+str(gal_n_bar)+"           1          #  Sersic index n (de Vaucouleurs n=4)\n")
-        file.write(" 9) "+str(gal_ar_bar)+"      1          #  Axis ratio (b/a)  \n")
-        file.write("10) "+str(gal_pa_bar)+"    1          #  Position angle (PA) [deg: Up=0, Left=90]\n")
-        file.write("C0) 0.5      0          #  Diskyness(-)/Boxyness(+)\n")
-        file.write(" Z) 0                      #  Skip this model in output image?  (yes=1, no=0)\n")
-        file.write("\n")
-
-    file.close()
+                #--------------------create galfit script----------------------
+                if seg_data[y_pix,x_pix] == 0:
+                    file = open(str(count)+"_artificial_galaxy.script", "w")
+                    file.write("# IMAGE PARAMETERS\n")
+                    file.write(" A) "+image_of_field+"  # Input Data image (FITS file)\n")
+                    file.write(" B) "+str(count)"_artificial_galaxy.fits  # Name for the output image\n")
+                    file.write(" C) "+rms_of_field+"  # Noise image name (made from data if blank or 'none')\n")
+                    file.write(" D) "+images_path+"gs_deep_f160w_v0.5_psf.fits  # Input PSF image and (optional) diffusion kernel\n")
+                    file.write(" E) 1  # PSF oversampling factor relative to data\n")
+                    file.write(" F) none  # Pixel mask (ASCII file or FITS file with non-0 values)\n")
+                    file.write(" G) none  # Parameter constraint file (ASCII)\n")
+                    file.write(" H) "+str(xmin)+" "+str(xmax)+" "+str(ymin)+" "+str(ymax)+" # Image region to fit (xmin xmax ymin ymax)\n")
+                    file.write(" I) "+str(size_of_fit)+" "+str(size_of_fit)+"  # Size of convolution box (x y)\n")
+                    file.write(" J) "+str(gal_zp)+"  # Magnitude photometric zeropoint\n")
+                    file.write(" K) "+str(pix_scale)+" "+str(pix_scale)+"  # Plate scale (dx dy)\n")
+                    file.write(" O) regular  # Display type (regular, curses, both)\n")
+                    file.write(" P) 1  # Create ouput only? (1=yes; 0=optimize)\n") #item P set to 1: GALFIT will create a model image based on your input parameters and immediately quit
+                    file.write(" S) 0  # Modify/create objects interactively?\n")
+                    file.write("\n")
+                    file.write("\n")
+                    file.write("# Component number: 1\n")
+                    file.write(" 0) sky                    #  Component type\n")
+                    file.write(" 1) 0.00      1       #  Sky background at center of fitting region [ADUs]\n")
+                    file.write(" 2) 0.000     1       #  dsky/dx (sky gradient in x)     [ADUs/pix]\n")
+                    file.write(" 3) 0.000     1       #  dsky/dy (sky gradient in y)     [ADUs/pix]\n")
+                    file.write(" Z) 0                      #  Skip this model in output image?  (yes=1, no=0)\n")
+                    file.write("\n")
+                    #-----singlefit-----
+                    file.write("# Component number: 2 - galaxy\n")
+                    file.write(" 0) sersic                 #  Component type\n")
+                    file.write(" 1) "+str(x_pix)+" "+str(y_pix)+" 1 1  #  Position x, y\n")
+                    file.write(" 3) "+str(mag_ele)+"     1          #  Integrated magnitude\n")
+                    file.write(" 4) "+str(re_ele)+"      1          #  R_e (effective radius)   [pix]\n")
+                    file.write(" 5) "+str(nn_ele)+"           1          #  Sersic index n (de Vaucouleurs n=4)\n")
+                    file.write(" 9) "+str(ar_ele)+"      1          #  Axis ratio (b/a)  \n")
+                    file.write("10) "+str(pa_value)+"    1          #  Position angle (PA) [deg: Up=0, Left=90]\n")
+                    file.write(" Z) 0                      #  Skip this model in output image?  (yes=1, no=0)\n")
+                    file.write("\n")
+                    file.close()
