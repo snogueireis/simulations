@@ -137,7 +137,7 @@ for ii in range(len(name_img)):
         # ----- write galfit script to create model galaxy -----
         file = open(str(gal)+"_artificial_galaxy.script", "w")
         file.write("# IMAGE PARAMETERS\n")
-        file.write(" A) "+str(gal)+"_original_stamp.fit  # Input Data image (FITS file)\n")
+        file.write(" A) "+str(gal)+"_original_stamp.fits  # Input Data image (FITS file)\n")
         file.write(" B) "+str(gal)+"_artificial_galaxy.fits  # Name for the output image\n")
         file.write(" C) "+str(gal)+"_rms.fits  # Noise image name (made from data if blank or 'none')\n")
         file.write(" D) "+path_psf+name_psf+" # Input PSF image and (optional) diffusion kernel\n")
